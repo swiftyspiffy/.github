@@ -1,0 +1,46 @@
+name: Notify Commit via ntfy
+
+on:
+  workflow_call:
+    inputs:
+      topic:
+        description: 'ntfy topic to publish to'
+        required: false
+        type: string
+        default: 'deploys'
+    secrets:
+      TS_AUTHKEY:
+        description: 'Tailscale auth key for internal access'
+        required: true
+      NTFY_SERVER_URL:
+        description: 'ntfy server URL'
+        required: true
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup Tailscale
+        uses: tailscale/github-action@main
+        with:
+          authkey: ${{ secrets.TS_AUTHKEY }}
+
+      - name: Send notification
+        env:
+          NTFY_SERVER: ${{ secrets.NTFY_SERVER_URL }}
+          NTFY_TOPIC: ${{ inputs.topic }}
+          REPO: ${{ github.repository }}
+          ACTOR: ${{ github.actor }}
+          MESSAGE: ${{ github.event.head_commit.message }}
+          SHA: ${{ github.sha }}
+          REF: ${{ github.ref_name }}
+        run: |
+          # Truncate message to first line
+          FIRST_LINE=$(echo "$MESSAGE" | head -n1 | cut -c1-100)
+          
+          curl -s \
+            -H "Title: ${REPO##*/}" \
+            -H "Tags: git,package" \
+            -H "Click: https://github.com/$REPO/commit/$SHA" \
+            -d "$ACTOR pushed to $REF: $FIRST_LINE" \
+            "$NTFY_SERVER/$NTFY_TOPIC"
