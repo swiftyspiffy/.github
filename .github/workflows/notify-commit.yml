@@ -9,8 +9,11 @@ on:
         type: string
         default: 'deploys'
     secrets:
-      TS_AUTHKEY:
-        description: 'Tailscale auth key for internal access'
+      TS_OAUTH_CLIENT_ID:
+        description: 'Tailscale OAuth client ID'
+        required: true
+      TS_OAUTH_SECRET:
+        description: 'Tailscale OAuth client secret'
         required: true
       NTFY_SERVER_URL:
         description: 'ntfy server URL'
@@ -21,9 +24,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Setup Tailscale
-        uses: tailscale/github-action@main
+        uses: tailscale/github-action@v3
         with:
-          authkey: ${{ secrets.TS_AUTHKEY }}
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
 
       - name: Send notification
         env:
