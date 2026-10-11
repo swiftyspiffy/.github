@@ -30,9 +30,39 @@ jobs:
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:ci
 
+      - name: Resolve notification server
+        id: ntfy
+        env:
+          NTFY_SERVER: ${{ secrets.NTFY_SERVER_URL }}
+        run: |
+          python3 - <<'PYRESOLVE'
+          import ipaddress, json, os, socket, subprocess, urllib.parse, urllib.request
+          url = urllib.parse.urlsplit(os.environ['NTFY_SERVER'])
+          host = url.hostname
+          port = url.port or (443 if url.scheme == 'https' else 80)
+          print('::add-mask::' + host)
+          try:
+              address = socket.gethostbyname(host)
+          except socket.gaierror:
+              query = urllib.parse.urlencode({'name': host, 'type': 'CNAME'})
+              request = urllib.request.Request('https://cloudflare-dns.com/dns-query?' + query, headers={'Accept': 'application/dns-json'})
+              with urllib.request.urlopen(request, timeout=15) as response:
+                  answers = json.load(response).get('Answer', [])
+              canonical = next(answer['data'].rstrip('.') for answer in answers if answer['type'] == 5)
+              peers = json.loads(subprocess.check_output(['tailscale', 'status', '--json'], text=True)).get('Peer', {})
+              peer = next(peer for peer in peers.values() if peer.get('DNSName', '').rstrip('.') == canonical)
+              address = next(ip for ip in peer['TailscaleIPs'] if ipaddress.ip_address(ip).version == 4)
+          resolve = f'{host}:{port}:{address}'
+          print('::add-mask::' + address)
+          print('::add-mask::' + resolve)
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('resolve=' + resolve + '\n')
+          PYRESOLVE
+
       - name: Send notification
         env:
           NTFY_SERVER: ${{ secrets.NTFY_SERVER_URL }}
+          NTFY_RESOLVE: ${{ steps.ntfy.outputs.resolve }}
           NTFY_TOPIC: ${{ inputs.topic }}
           REPO: ${{ github.repository }}
           ACTOR: ${{ github.actor }}
@@ -43,7 +73,7 @@ jobs:
           # Truncate message to first line
           FIRST_LINE=$(echo "$MESSAGE" | head -n1 | cut -c1-100)
           
-          curl -s \
+          curl --fail --silent --show-error --resolve "$NTFY_RESOLVE" \
             -H "Title: ${REPO##*/}" \
             -H "Tags: git,package" \
             -H "Click: https://github.com/$REPO/commit/$SHA" \
